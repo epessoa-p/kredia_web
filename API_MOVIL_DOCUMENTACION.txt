@@ -1,0 +1,474 @@
+API MOVIL - SISTEMA PRESTAMOS
+Fecha: 2026-03-30
+Version: v1
+
+1) BASE URL
+- Desarrollo local: http://127.0.0.1:8000/api/v1
+- Produccion: https://TU-DOMINIO/api/v1
+
+2) AUTENTICACION (BEARER TOKEN)
+- Tipo: Bearer Token propio del sistema (no Sanctum/JWT).
+- Header requerido:
+  Authorization: Bearer TU_TOKEN
+  Accept: application/json
+
+- Vigencia del token:
+  Configurable por variable API_TOKEN_TTL_HOURS (default 720 horas = 30 dias).
+
+- Login:
+  POST /auth/login
+  Body JSON:
+  {
+    "login": "correo_o_usuario",
+    "password": "clave",
+    "company_id": 1,
+    "device_name": "flutter-app"
+  }
+
+  Notas login:
+  - company_id es opcional.
+  - Para usuario normal (no super admin):
+    Si no manda company_id, se toma su primera empresa activa.
+  - Para super admin:
+    Puede loguear sin company_id (acceso global) o enviar company_id para limitar el token a una empresa.
+
+  Respuesta exitosa (200):
+  {
+    "token": "...",
+    "token_type": "Bearer",
+    "expires_at": "2026-04-29T10:00:00Z",
+    "user": { ... },
+    "company": { ... },
+    "permissions": ["loans.view", "payments.create"]
+  }
+
+- Perfil token:
+  GET /auth/me
+  Retorna usuario, empresa activa del token, permisos y metadatos del token.
+
+- Logout:
+  POST /auth/logout
+  Revoca el token actual.
+
+3) ENDPOINTS PRINCIPALES
+
+3.1 Dashboard
+- GET /dashboard
+- Requiere token.
+- Respuesta:
+  {
+    "company": { "id": 1, "name": "Empresa X" },
+    "summary": {
+      "total_loans": 120,
+      "active_loans": 55,
+      "completed_loans": 40,
+      "overdue_loans": 10,
+      "total_amount": 150000.50,
+      "total_paid": 67000.00,
+      "total_pending": 83000.50
+    },
+    "recent_loans": [ ... ]
+  }
+
+3.2 Prestamos
+- GET /loans
+- Permiso requerido: loans.view
+- Query params opcionales:
+  status=ACTIVO|FINALIZADO|EN_MORA|INCUMPLIDO|CANCELADO
+  q=texto (id prestamo, nombre cliente, nombre producto)
+  branch_id=numero
+  product_id=numero
+  date_from=YYYY-MM-DD
+  date_to=YYYY-MM-DD
+  per_page=1..100
+
+- Respuesta: paginada de Laravel con data[] y metadatos de pagina.
+
+- GET /loans/{loan}
+- Permiso requerido: loans.view
+- Devuelve detalle del prestamo + calculos:
+  current_capital, unpaid_interest_total, liquidation_amount,
+  pending_amount, outstanding_principal.
+
+3.3 Pagos
+- GET /payments
+- Permiso requerido: payments.view
+- Query params opcionales:
+  loan_id=numero
+  q=texto (referencia o nombre cliente)
+  date_from=YYYY-MM-DD
+  date_to=YYYY-MM-DD
+  per_page=1..100
+
+- POST /loans/{loan}/payments
+- Permiso requerido: payments.create
+- Body JSON:
+  {
+    "payment_type": "interest|capital|mixed",
+    "amount": 100.50,
+    "capital": 50.25,
+    "interest": 50.25,
+    "payment_date": "2026-03-30",
+    "payment_method": "efectivo",
+    "reference": "TRX-1001",
+    "notes": "Pago desde app movil"
+  }
+
+3.4 Clientes
+- GET /clients
+- Permiso requerido: clients.view
+- Query params opcionales:
+  q=texto (nombre, documento, telefono, correo)
+  active=true|false
+  per_page=1..100
+
+- GET /clients/{client}
+- Permiso requerido: clients.view
+- Devuelve detalle del cliente + resumen y ultimos movimientos relacionados.
+- Para compatibilidad móvil, la respuesta trae relaciones dentro de client y tambien
+  arreglos top-level: loans, purchases, sales.
+- Cada prestamo incluye:
+  status (actual en BD: ACTIVO|FINALIZADO|CANCELADO|EN_MORA|INCUMPLIDO)
+  status_label (texto para UI)
+  status_legacy (compatibilidad: active|finished|cancelled|overdue|defaulted)
+
+  Estructura base:
+  {
+    "client": { ..., "loans": [...], "purchases": [...], "sales": [...] },
+    "loans": [...],
+    "purchases": [...],
+    "sales": [...],
+    "summary": {
+      "loans_count": 0,
+      "purchases_count": 0,
+      "sales_count": 0,
+      "loans_amount_sum": 0,
+      "loans_paid_sum": 0
+    }
+  }
+
+  Nota importante:
+  - status_legacy se agrega para apps que aun filtran con valores en ingles.
+  - Nuevo desarrollo debe consumir status o status_label.
+
+  Listas incluidas (hasta 20):
+  - ultimos prestamos (hasta 20)
+  - ultimas compras (hasta 20)
+  - ultimas ventas (hasta 20)
+
+3.5 Compras
+- GET /purchases
+- Permiso requerido: purchases.view
+- Query params opcionales:
+  q=texto (id, notas, cliente, producto)
+  status=texto
+  branch_id=numero
+  client_id=numero
+  product_id=numero
+  date_from=YYYY-MM-DD
+  date_to=YYYY-MM-DD
+  per_page=1..100
+
+- GET /purchases/{purchase}
+- Permiso requerido: purchases.view
+- Devuelve detalle de compra con relaciones:
+  cliente, producto, sucursal, categoria de credito, usuario, caja, sesion, imagenes.
+
+3.6 Ventas
+- GET /sales
+- Permiso requerido: sales.view
+- Query params opcionales:
+  q=texto (id, notas, cliente, producto)
+  status=texto
+  branch_id=numero
+  warehouse_id=numero
+  client_id=numero
+  product_id=numero
+  date_from=YYYY-MM-DD
+  date_to=YYYY-MM-DD
+  per_page=1..100
+
+- GET /sales/{sale}
+- Permiso requerido: sales.view
+- Devuelve detalle de venta con relaciones:
+  cliente, producto, sucursal, almacen, categoria, usuario, caja, sesion,
+  prenda asociada, compra origen, imagenes, cuotas.
+
+3.7 Movimientos de Caja
+- GET /movements
+- Permiso requerido: reports.view
+- Query params opcionales:
+  q=texto (referencia, descripcion)
+  type=income|expense
+  category=texto
+  cash_register_id=numero
+  date_from=YYYY-MM-DD
+  date_to=YYYY-MM-DD
+  per_page=1..100
+
+- GET /movements/{movement}
+- Permiso requerido: reports.view
+- Devuelve detalle de movimiento con:
+  caja, sesion, usuario y referencia polimorfica.
+
+3.8 Inventario y Stock
+- GET /inventory/stock
+- Permiso requerido: warehouses.view
+- Devuelve stock agregado por producto + almacen (+ sucursal cuando aplica).
+- Query params opcionales:
+  q=texto (producto o sku)
+  product_id=numero
+  warehouse_id=numero
+  branch_id=numero
+  per_page=1..100
+
+- GET /inventory/stock/{product}
+- Permiso requerido: warehouses.view
+- Devuelve detalle de stock del producto:
+  - resumen global (stock_total)
+  - stock agrupado por almacen/sucursal
+  - ultimos movimientos de inventario (hasta 50)
+
+3.9 Catalogos
+- GET /catalogs
+- Permiso requerido: catalogs.view
+- Query params opcionales:
+  q=texto (titulo, slug, descripcion)
+  active=true|false
+  per_page=1..100
+
+- GET /catalogs/{catalog}
+- Permiso requerido: catalogs.view
+- Devuelve detalle del catalogo con items y producto relacionado.
+- Incluye:
+  public_url e is_accessible.
+
+  Reglas:
+  - payment_type interest: todo va a interes.
+  - payment_type capital: todo va a capital.
+  - payment_type mixed: puede enviar capital e interes.
+  - Si el total_paid alcanza total_to_pay, el prestamo pasa a estado finished.
+
+  Respuesta exitosa (201):
+  {
+    "message": "Pago registrado correctamente.",
+    "payment": { ... },
+    "loan": {
+      "id": 10,
+      "status": "ACTIVO|FINALIZADO|CANCELADO|EN_MORA|INCUMPLIDO",
+      "total_paid": 1200.50,
+      "total_to_pay": 2400.00
+    }
+  }
+
+4) MODELOS/OBJETOS QUE DEBE CONSUMIR FLUTTER
+
+4.1 User (resumen)
+- id
+- name
+- email
+- phone
+- is_super_admin
+- active
+
+4.2 Company (resumen)
+- id
+- name
+- ruc
+- phone
+- email
+
+4.3 Loan (campos mas usados)
+- id
+- company_id
+- branch_id
+- product_id
+- client_id
+- amount
+- current_capital
+- interest_rate
+- term_months
+- monthly_payment
+- total_to_pay
+- total_paid
+- start_date
+- end_date
+- status
+- penalty_status
+- penalty_amount
+- interest_period
+- approved_at
+- created_at
+- updated_at
+
+4.4 LoanPayment
+- id
+- loan_id
+- registered_by
+- amount
+- payment_type
+- capital
+- interest
+- payment_date
+- payment_method
+- reference
+- notes
+- created_at
+
+4.5 Respuesta paginada (Laravel)
+- current_page
+- data[]
+- first_page_url
+- from
+- last_page
+- last_page_url
+- links[]
+- next_page_url
+- path
+- per_page
+- prev_page_url
+- to
+- total
+
+4.6 Client (campos principales)
+- id
+- company_id
+- name
+- id_number
+- phone
+- email
+- address
+- location_url
+- location_lat
+- location_lng
+- notes
+- active
+- created_at
+- updated_at
+
+4.7 Purchase (campos principales)
+- id
+- company_id
+- branch_id
+- product_id
+- credit_category_id
+- client_id
+- created_by
+- cash_register_id
+- cash_register_session_id
+- amount
+- notes
+- status
+- purchase_date
+- created_at
+- updated_at
+
+4.8 Sale (campos principales)
+- id
+- company_id
+- branch_id
+- warehouse_id
+- product_id
+- credit_category_id
+- client_id
+- created_by
+- cash_register_id
+- cash_register_session_id
+- loan_collateral_id
+- purchase_id
+- amount
+- payment_type
+- cost
+- profit
+- notes
+- status
+- sale_date
+- created_at
+- updated_at
+
+4.9 CashMovement (campos principales)
+- id
+- company_id
+- cash_register_id
+- cash_register_session_id
+- user_id
+- type
+- category
+- amount
+- reference_type
+- reference_id
+- description
+- movement_date
+- created_at
+- updated_at
+
+4.10 Stock agregado (respuesta /inventory/stock)
+- product_id
+- warehouse_id
+- branch_id
+- product_name
+- product_sku
+- warehouse_name
+- branch_name
+- stock
+- last_movement_at
+
+4.11 Catalog (campos principales)
+- id
+- company_id
+- created_by
+- title
+- description
+- slug
+- cover_color
+- logo_path
+- show_prices
+- show_contact
+- contact_phone
+- contact_whatsapp
+- contact_email
+- active
+- expires_at
+- public_url
+- items_count
+
+5) CODIGOS HTTP ESPERADOS
+- 200: OK
+- 201: Creado
+- 401: No autenticado / token invalido o expirado
+- 403: Sin permisos o sin acceso a empresa/prestamo
+- 404: Recurso no encontrado
+- 422: Error de validacion
+- 500: Error interno
+
+6) PASOS TECNICOS PARA LEVANTAR LA API
+1. Ejecutar migracion nueva de tokens:
+   php artisan migrate
+2. (Opcional) Definir vigencia del token en .env:
+   API_TOKEN_TTL_HOURS=720
+3. Levantar servidor:
+   php artisan serve
+4. Probar login con Postman/Insomnia y luego consumir desde Flutter.
+
+7) FLUJO RECOMENDADO EN FLUTTER
+1. Login -> guardar token (secure storage).
+2. Llamar /auth/me al iniciar app para refrescar contexto de usuario/empresa.
+3. Consumir /dashboard para resumen inicial.
+4. Consumir endpoints de listado/detalle segun modulo:
+  /clients, /purchases, /sales, /movements, /inventory/stock, /catalogs.
+5. Para registrar pagos usar /loans/{loan}/payments.
+6. Al cerrar sesion llamar /auth/logout y borrar token local.
+
+8) NOTAS IMPORTANTES
+- Esta API usa permisos del sistema actual (roles + permisos por empresa).
+- Un token de usuario normal queda asociado a una empresa.
+- Super admin puede usar token global o token atado a empresa.
+- Si el token expira, el cliente Flutter debe reenviar login.
+
+9) MATRIZ RAPIDA DE ENDPOINTS NUEVOS (LISTADO + DETALLE)
+- GET /clients | GET /clients/{client}
+- GET /purchases | GET /purchases/{purchase}
+- GET /sales | GET /sales/{sale}
+- GET /movements | GET /movements/{movement}
+- GET /inventory/stock | GET /inventory/stock/{product}
+- GET /catalogs | GET /catalogs/{catalog}

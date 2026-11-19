@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mysql -h 127.0.0.1 -P 3317 -u root prestamos_db -e \"SELECT id, name, paper_size, content FROM document_templates WHERE id = 11\\\\G\")",
+      "PowerShell(& \"C:\\\\Program Files\\\\MySQL\\\\MySQL Server 8.0\\\\bin\\\\mysql.exe\" -h 127.0.0.1 -P 3317 -u root prestamos_db -e \"SELECT id, name, paper_size, content FROM document_templates WHERE id = 11\\\\G\" 2>&1)",
+      "Read(//c/Program Files/**)",
+      "Bash(xargs grep -l \"companies\\\\|capital\\\\|stock_value\")",
+      "Bash(xargs grep -l \"CREATE TABLE.*products\")",
+      "Bash(xargs grep -l \"products\\\\|inventory\")",
+      "Bash(mkdir -p \"d:/repository/prestamos/prestamos/app/Http/Controllers/Capital\")",
+      "Bash(mkdir -p \"d:/repository/prestamos/prestamos/resources/views/capital\")",
+      "Bash(Get-ChildItem \"d:\\\\repository\\\\prestamos\\\\prestamos\\\\database\\\\migrations\" -Filter \"*purchase*\" -o -Filter \"*sale*\")",
+      "PowerShell(Get-ChildItem \"d:\\\\repository\\\\prestamos\\\\prestamos\\\\database\\\\migrations\" | Where-Object { $_.Name -match \"\\(purchase|sale\\)\" } | Select-Object Name)",
+      "Bash(xargs grep -l \"create_purchases_table\\\\|create_sales_table\")",
+      "Bash(xargs grep -l \"Schema::create\\\\\\('purchases'\")",
+      "Bash(xargs grep -l \"create.*purchase\\\\|create.*sale\")",
+      "Bash(xargs grep -l \"unique\\\\|branch\")"
+    ]
+  }
+}

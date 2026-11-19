@@ -1,0 +1,324 @@
+API MOVIL - MODULO INVENTARIO
+Fecha: 2026-04-28
+Version: v1
+
+1) BASE URL
+- Desarrollo local: http://127.0.0.1:8000/api/v1
+- Produccion: https://TU-DOMINIO/api/v1
+
+2) AUTENTICACION Y PERMISOS
+- Header requerido:
+  Authorization: Bearer TU_TOKEN
+  Accept: application/json
+
+- Permisos usados en inventario:
+  - warehouses.view: consultar stock y opciones.
+  - warehouses.create: registrar ingreso de stock.
+
+- Regla de empresa:
+  - Usuario normal: siempre opera en la empresa del token.
+  - Super admin con company_id en token: queda limitado a esa empresa.
+  - Super admin sin company_id en token: para registrar ingreso, la empresa se infiere desde la sucursal enviada.
+
+3) ENDPOINTS DEL MODULO INVENTARIO
+
+3.1 Consultar stock agregado
+- GET /inventory/stock
+- Permiso: warehouses.view
+- Query params opcionales:
+  q=texto (producto o sku)
+  product_id=numero
+  warehouse_id=numero
+  branch_id=numero
+  per_page=1..100
+
+- Respuesta (200): paginada estilo Laravel
+  {
+    "current_page": 1,
+    "data": [
+      {
+        "product_id": 10,
+        "warehouse_id": 2,
+        "branch_id": 3,
+        "product_name": "Laptop Lenovo",
+        "product_sku": "LAP-001",
+        "warehouse_name": "Almacen Central",
+        "branch_name": "Sucursal Centro",
+        "stock": "5.00",
+        "last_movement_at": "2026-04-27 15:30:00"
+      }
+    ],
+    "per_page": 15,
+    "total": 1
+  }
+
+3.2 Consultar detalle de stock por producto
+- GET /inventory/stock/{product}
+- Permiso: warehouses.view
+
+- Respuesta (200)
+  {
+    "product": { "id": 10, "name": "Laptop Lenovo", "sku": "LAP-001" },
+    "summary": {
+      "stock_total": 5
+    },
+    "stock_by_warehouse": [
+      {
+        "warehouse_id": 2,
+        "branch_id": 3,
+        "warehouse_name": "Almacen Central",
+        "branch_name": "Sucursal Centro",
+        "stock": "5.00",
+        "last_movement_at": "2026-04-27 15:30:00"
+      }
+    ],
+    "recent_movements": [
+      {
+        "id": 150,
+        "type": "in",
+        "quantity": "1.00",
+        "reference": "INGRESO-MANUAL-API",
+        "movement_date": "2026-04-27T15:30:00.000000Z",
+        "images": [
+          {
+            "id": 98,
+            "inventory_movement_id": 150,
+            "path": "movement-images/movement-150/foto1.webp",
+            "original_name": "foto1.webp",
+            "mime_type": "image/webp",
+            "size_bytes": 134220
+          }
+        ]
+      }
+    ]
+  }
+
+3.3 Obtener opciones para formulario de ingreso
+- GET /inventory/options
+- Permiso: warehouses.view
+- Query params opcionales:
+  q=texto (filtra productos por nombre, sku o marca)
+  product_limit=1..200 (default 100)
+
+- Respuesta (200)
+  {
+    "branches": [
+      { "id": 3, "company_id": 1, "warehouse_id": 2, "name": "Sucursal Centro" }
+    ],
+    "warehouses": [
+      { "id": 2, "company_id": 1, "name": "Almacen Central", "code": "ALM-CEN" }
+    ],
+    "categories": [
+      { "id": 4, "company_id": 1, "name": "Articulos", "color": "#0ea5e9" }
+    ],
+    "products": [
+      {
+        "id": 10,
+        "company_id": 1,
+        "credit_category_id": 4,
+        "name": "Laptop Lenovo",
+        "sku": "LAP-001",
+        "brand": "Lenovo",
+        "item_model": "ThinkPad X1",
+        "material_type": null,
+        "cost": "120.00",
+        "price": "180.00"
+      }
+    ]
+  }
+
+3.4 Registrar ingreso de stock
+- POST /inventory/stock-entry
+- Permiso: warehouses.create
+- Content-Type recomendado:
+  - application/json (sin imagenes)
+  - multipart/form-data (con imagenes)
+
+A) Ingreso con producto existente
+Body JSON:
+{
+  "branch_id": 3,
+  "warehouse_id": 2,
+  "product_mode": "existing",
+  "product_id": 10,
+  "quantity": 1,
+  "unit_cost": 125.50,
+  "reference": "FACT-INV-1001",
+  "notes": "Ingreso por ajuste",
+  "movement_date": "2026-04-28 10:30:00"
+}
+
+B) Ingreso creando producto nuevo
+Body JSON:
+{
+  "branch_id": 3,
+  "warehouse_id": 2,
+  "product_mode": "new",
+  "credit_category_id": 4,
+  "product_name": "Televisor Samsung 43",
+  "product_brand": "Samsung",
+  "product_serial_number": "SN-889912",
+  "product_item_model": "Galaxy S24",
+  "product_description": "En caja, sin uso",
+  "product_cost": 220,
+  "product_price": 310,
+  "quantity": 1,
+  "movement_date": "2026-04-28 11:00:00"
+}
+
+Logica de campos segun credit_category_id (product_mode=new):
+
+  Categoria 1 - Vehiculos
+  Campos habilitados: product_name*, product_brand*, product_model_year* (1980-hoy),
+                      product_plate*, product_chassis*, product_description
+  Ejemplo:
+  {
+    "credit_category_id": 1,
+    "product_name": "Toyota Corolla",
+    "product_brand": "Toyota",
+    "product_model_year": 2020,
+    "product_plate": "AB123CD",
+    "product_chassis": "JTNB11HK0J3012345",
+    "product_description": "Color blanco, buen estado"
+  }
+
+  Categoria 2 - Joyas
+  Campos habilitados: product_name*, product_item_type* (tipo de joya),
+                      product_karat* (10K|14K|18K|21K|22K|24K),
+                      product_material_type (Oro|Plata|Platino|Acero|Otro),
+                      product_description
+  Ejemplo:
+  {
+    "credit_category_id": 2,
+    "product_name": "Anillo 18K",
+    "product_item_type": "Anillo",
+    "product_karat": "18K",
+    "product_material_type": "Oro",
+    "product_description": "Con piedra, buen estado"
+  }
+
+  Categoria 3 - Garrafas
+  Campos habilitados: product_description
+  Nota: product_name se omite o se envia el nombre de la categoria ("Garrafas").
+        El formulario web lo rellena automaticamente; en API enviar product_name="Garrafas".
+  Ejemplo:
+  {
+    "credit_category_id": 3,
+    "product_name": "Garrafas",
+    "product_description": "10 litros, en buen estado"
+  }
+
+  Categoria 4 - Articulos
+  Campos habilitados: product_name*, product_brand*, product_item_model,
+                      product_serial_number*, product_description
+  Ejemplo:
+  {
+    "credit_category_id": 4,
+    "product_name": "Laptop Lenovo",
+    "product_brand": "Lenovo",
+    "product_item_model": "ThinkPad E15",
+    "product_serial_number": "SN-889912",
+    "product_description": "En caja, sin uso"
+  }
+
+(*) Campo recomendado / requerido por la UI para esa categoria.
+
+C) Ingreso con imagenes (multipart/form-data)
+Campos:
+- branch_id, warehouse_id, product_mode, product_id/product fields, quantity, movement_date
+- images[]: hasta 20 archivos JPG/JPEG/PNG/WebP (max 5MB cada uno)
+
+- Respuesta exitosa (201)
+{
+  "message": "Ingreso de stock registrado correctamente.",
+  "data": {
+    "movement": {
+      "id": 210,
+      "company_id": 1,
+      "warehouse_id": 2,
+      "branch_id": 3,
+      "product_id": 10,
+      "user_id": 7,
+      "type": "in",
+      "quantity": "1.00",
+      "unit_cost": "125.50",
+      "reference": "FACT-INV-1001",
+      "notes": "Ingreso por ajuste",
+      "movement_date": "2026-04-28T10:30:00.000000Z",
+      "images": [
+        {
+          "id": 98,
+          "inventory_movement_id": 210,
+          "path": "movement-images/movement-210/foto1.webp",
+          "url": "/storage/movement-images/movement-210/foto1.webp",
+          "original_name": "foto1.webp",
+          "mime_type": "image/webp",
+          "size_bytes": 134220
+        }
+      ]
+    },
+    "product": {
+      "id": 10,
+      "name": "Laptop Lenovo",
+      "sku": "LAP-001",
+      "item_model": "ThinkPad X1",
+      "material_type": null
+    }
+  }
+}
+
+Nota sobre imagenes:
+- El campo images se encuentra dentro de movement (data.movement.images).
+- Cada imagen incluye url lista para consumir directamente (construida con Storage::url).
+- Si no se enviaron imagenes, data.movement.images sera un arreglo vacio [].
+- En GET /inventory/stock/{product}, cada movimiento en recent_movements tambien incluye
+  images[], pero sin el campo url (solo path relativo).
+
+4) CONTROL DE ERRORES
+
+4.1 Error de validacion (422)
+{
+  "message": "The given data was invalid.",
+  "errors": {
+    "branch_id": ["The branch id field is required."],
+    "product_mode": ["The selected product mode is invalid."],
+    "images.0": ["The images.0 field must be an image."]
+  }
+}
+
+4.2 No autorizado por token/permisos (401/403)
+- 401: token ausente, vencido o revocado.
+- 403: recurso fuera de la empresa del token o falta de permiso.
+
+Ejemplo 403:
+{
+  "message": "La sucursal no pertenece a la empresa activa del token."
+}
+
+4.3 Error interno (500)
+{
+  "message": "No fue posible registrar el ingreso de stock. Intenta nuevamente."
+}
+
+5) LOGS DE ERRORES
+- El endpoint POST /inventory/stock-entry registra errores en logs de Laravel:
+  archivo: storage/logs/laravel.log
+
+- Evento registrado:
+  "Error API al registrar ingreso de stock"
+
+- Contexto logueado:
+  - user_id
+  - token_company_id
+  - branch_id
+  - warehouse_id
+  - product_mode
+  - message (excepcion)
+  - trace
+
+6) RECOMENDACIONES PARA APP MOVIL
+- Consumir primero GET /inventory/options para cargar combos.
+- Para listas grandes de productos, usar q y product_limit.
+- Enviar movement_date en formato compatible con Laravel date.
+- Mostrar al usuario el contenido de errors.* cuando llegue 422.
+- Reintentar una sola vez cuando llegue 500; si persiste, notificar soporte.
